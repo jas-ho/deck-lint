@@ -96,6 +96,10 @@ def test_source_and_existing_pdf_are_unchanged(tmp_path):
         ["--disable", "bogus"],
         ["--set", "aspect=1:0"],
         ["--set", "footer_band=2"],
+        ["--set", 'forbidden=["("]'],
+        ["--set", 'accepted=["wrap.long"]'],
+        ["--set", 'accepted=["bogus.rule: text"]'],
+        ["--set", 'inputs=["novalue"]'],
         ["--fail-on", "never"],
         ["--wat"],
     ],
@@ -161,6 +165,13 @@ def test_sheet_no_overwrite(compiled, tmp_path):
     before = output.read_bytes()
     assert run("sheet", compiled / "clean.pdf", "--output", output).returncode == 2
     assert output.read_bytes() == before
+    r = run("sheet", compiled / "layout.pdf", "--output", output, "--replace")
+    assert r.returncode == 0, r.stderr
+    assert output.read_bytes() != before
+    other = tmp_path / "notes.txt"
+    other.write_text("keep")
+    assert run("sheet", compiled / "clean.pdf", "--output", other, "--replace").returncode == 2
+    assert other.read_text() == "keep"
 
 
 def test_fonts_images_rotated_text_and_scale(tmp_path):
@@ -210,6 +221,16 @@ def test_typst_tool_failure_and_input_options(tmp_path):
         '#set page(width: 960pt, height: 540pt)\n#set text(size: 26pt)\n#metadata((title: "Input")) <deck-slide>\n#sys.inputs.at("message")'
     )
     assert run("check", "--typ", source, "--json").returncode == 2
+    config = tmp_path / "deck-lint.toml"
+    config.write_text("inputs = ['message=from config']\n")
+    r = run("check", "--typ", source, "--config", config, "--json")
+    assert r.returncode == 0, r.stdout
+    assert json.loads(r.stdout)["coverage"]["typst_inputs"] == ["message=from config"]
+    r = run("check", "--typ", source, "--config", config, "--input", "message=TODO", "--json")
+    assert json.loads(r.stdout)["coverage"]["typst_inputs"] == ["message=TODO"]
+    assert "text.placeholder" in r.stdout
+    for bad in ["novalue", "=value", "  =value"]:
+        assert run("check", "--typ", source, "--input", bad, "--json").returncode == 2
     r = run("check", "--typ", source, "--input", "message=TODO", "--root", tmp_path, "--json")
     assert r.returncode == 1
     assert "text.placeholder" in r.stdout
@@ -255,3 +276,56 @@ def test_recoverable_pdf_reports_warning(tmp_path):
     r = run("check", target, "--json")
     assert r.returncode == 1, r.stderr
     assert any(f["rule"] == "pdf.repaired" for f in json.loads(r.stdout)["findings"])
+
+
+def test_forbidden_strings_are_errors(tmp_path):
+    target = tmp_path / "leaks.pdf"
+    with pdf.open() as doc:
+        page = doc.new_page(width=960, height=540)
+        page.insert_text((50, 80), "Jhon Smith", fontsize=26)
+        page.insert_text((50, 160), "See TICKET-0721 for details", fontsize=26)
+        doc.save(target)
+    config = tmp_path / "deck-lint.toml"
+    config.write_text("forbidden = ['Jhon', 'TICKET-\\d+']\n")
+    r = run("check", target, "--config", config, "--fail-on", "error", "--json")
+    assert r.returncode == 1, r.stdout
+    hits = [f for f in json.loads(r.stdout)["findings"] if f["rule"] == "text.forbidden"]
+    assert [(f["severity"], f["excerpt"]) for f in hits] == [
+        ("error", "Jhon Smith"),
+        ("error", "See TICKET-0721 for details"),
+    ]
+
+
+def test_accepted_findings_hide_warnings_only(compiled, tmp_path):
+    config = tmp_path / "deck-lint.toml"
+    config.write_text(
+        'accepted = ["wrap.runt: OFF", "typst.spillover: An overflowing final slide", "wrap.long: gone"]\n'
+    )
+    r = run("check", "--typ", ROOT / "tests/fixtures/layout.typ", "--config", config, "--json")
+    data = json.loads(r.stdout)
+    assert not any(f["rule"] == "wrap.runt" and f["excerpt"] == "OFF" for f in data["findings"])
+    assert any(f["rule"] == "typst.spillover" for f in data["findings"])
+    assert data["coverage"]["accepted"] == 1
+    assert data["coverage"]["accepted_unmatched"] == [
+        "typst.spillover: An overflowing final slide",
+        "wrap.long: gone",
+    ]
+
+
+def test_accepted_counts_each_hidden_warning(tmp_path):
+    target = tmp_path / "repeat.pdf"
+    with pdf.open() as doc:
+        for _ in range(2):
+            doc.new_page(width=960, height=540).insert_text((50, 80), "Tiny footnote", fontsize=8)
+        doc.save(target)
+    r = run(
+        "check",
+        target,
+        "--set",
+        "accepted=['font.small: Tiny footnote']",
+        "--set",
+        "disabled=['font.unembedded']",
+        "--json",
+    )
+    data = json.loads(r.stdout)
+    assert (r.returncode, data["findings"], data["coverage"]["accepted"]) == (0, [], 2)

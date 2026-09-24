@@ -21,13 +21,13 @@ deck-lint check deck.pdf --json
 deck-lint check --typ deck.typ --input notes=false
 deck-lint check deck.pdf --set min_font=16 --set max_pages=30
 deck-lint check deck.pdf --config deck-lint.toml --disable wrap.long
-deck-lint sheet deck.pdf --output sheet.png
+deck-lint sheet deck.pdf --output sheet.png --replace
 deck-lint snippet
 ```
 
-The CLI works from any directory. Relative paths resolve from the caller's working directory. `--typ` accepts a source instead of a PDF; it never replaces the source's existing PDF. `--root`, repeatable `--font-path` and `--input key=value` apply to both Typst calls. Other compiler switches are not supported in this version; use PDF mode for a custom build.
+The CLI works from any directory. Relative paths resolve from the caller's working directory. `--typ` accepts a source instead of a PDF; it never replaces the source's existing PDF. `--root`, repeatable `--font-path` and `--input key=value` apply to both Typst calls. The config's `inputs` list supplies the real build's inputs; a command-line `--input` overrides the same key, PDF mode ignores the list, and JSON `coverage.typst_inputs` records what was compiled. Other compiler switches are not supported in this version; use PDF mode for a custom build.
 
-Text output has one finding per line: severity, rule ID, physical page, bounding box and a short excerpt. JSON is one object with `schema_version`, `findings`, `coverage`, `pages` and `error`. `coverage.text_unavailable_pages` lists pages without extractable text even if that warning is disabled. Coordinates are points from the top-left of the unrotated CropBox; page numbers are physical and one-based. A clean text-mode run emits nothing. Exit 0 means no findings at the selected failure level, 1 means findings, 2 means invalid input or a tool failure. `--fail-on error` lets warnings remain advisory. JSON errors also use the same envelope.
+Text output has one finding per line: severity, rule ID, physical page, bounding box and a short excerpt. JSON is one object with `schema_version`, `findings`, `coverage`, `pages` and `error`. `coverage.text_unavailable_pages` lists pages without extractable text even if that warning is disabled. Coordinates are points from the top-left of the unrotated CropBox; page numbers are physical and one-based. A clean text-mode run emits nothing. Exit 0 means no findings at the selected failure level, 1 means findings, 2 means invalid input or a tool failure. `--fail-on error` lets warnings remain advisory. `coverage.accepted` counts warnings hidden by the `accepted` list and `coverage.accepted_unmatched` lists entries that no longer match anything. JSON errors also use the same envelope.
 
 ## Typst hook
 
@@ -45,9 +45,22 @@ The query uses `it.location().page()`, a physical page number unaffected by rese
 
 ## Defaults and rules
 
-Optional config is an explicitly named TOML file with flat keys. Precedence: built-in defaults, config, then repeatable `--set key=value`. `--disable rule.id` adds rule exclusions. Values use TOML types; unknown keys, invalid types/ranges and unknown rule IDs fail with exit 2. There is no parent-folder search, per-slide suppression language or plugin system.
+Optional config is an explicitly named TOML file with flat keys. Precedence: built-in defaults, config, then repeatable `--set key=value`. `--disable rule.id` adds rule exclusions. Values use TOML types; unknown keys, invalid types/ranges and unknown rule IDs fail with exit 2. There is no parent-folder search or plugin system.
 
-Font sizes and geometric tolerances are normalized to a 540-point-high slide. Reported coordinates retain original PDF units; font findings include actual and normalized sizes. For example, `min_font=16` on a 720-point-high page means an actual threshold of 21.3pt. This keeps the thresholds useful for differently scaled exports. Defaults: `min_font=12`, `footer_min_font=9`, `footer_band=0.09` (bottom fraction), `max_lines=2`, `runt_ratio=0.35`, `overlap_pt=2`, `image_dpi=100`, `aspect=""` (consistent size only), `max_pages=0` (unlimited), `require_titles=false`, `require_notes=false`, `disabled=[]`.
+Two list settings are meant for a per-deck `deck-lint.toml` next to the deck:
+
+```toml
+# Regexes; each match on a rendered line is an error. Use single quotes so backslashes stay literal.
+forbidden = ['TICKET-\d+', 'Do not say', 'Jhon']
+# Warnings already judged deliberate, as "rule.id: excerpt" copied from check output.
+accepted = ['wrap.runt: begins.', 'wrap.long: A DELIBERATELY LONG SECTION OPENER']
+# Typst inputs of the delivered build, so check --typ lints that deck.
+inputs = ['theme=light', 'notes=false']
+```
+
+`forbidden` catches internal IDs, speaker guidance and known misspellings that reach the slides. Matching is per rendered line, so a pattern split across a line break is missed. `accepted` hides warnings only, never errors, and matches rule plus excerpt rather than page, so it survives slides moving. Editing an accepted line changes its excerpt and the warning returns.
+
+Font sizes and geometric tolerances are normalized to a 540-point-high slide. Reported coordinates retain original PDF units; font findings include actual and normalized sizes. For example, `min_font=16` on a 720-point-high page means an actual threshold of 21.3pt. This keeps the thresholds useful for differently scaled exports. Defaults: `min_font=12`, `footer_min_font=9`, `footer_band=0.09` (bottom fraction), `max_lines=2`, `runt_ratio=0.35`, `overlap_pt=2`, `image_dpi=100`, `aspect=""` (consistent size only), `max_pages=0` (unlimited), `require_titles=false`, `require_notes=false`, `disabled=[]`, `forbidden=[]`, `accepted=[]`, `inputs=[]`.
 
 | Rule                                          | Meaning                                                                                          |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -59,6 +72,7 @@ Font sizes and geometric tolerances are normalized to a 540-point-high slide. Re
 | `font.tall`                                   | A mixed-font line has unusually tall metrics or an unscaled emoji; inspect baseline and leading. |
 | `font.unembedded`                             | A font resource is not embedded.                                                                 |
 | `text.placeholder`                            | Rendered TODO, FIXME or TBD token.                                                               |
+| `text.forbidden`                              | Rendered text matches a configured `forbidden` pattern (error).                                  |
 | `image.low-dpi`                               | A large placed raster image is below the effective DPI threshold.                                |
 | `page.size`                                   | Mixed page dimensions, or the requested aspect ratio is wrong.                                   |
 | `page.budget`                                 | Physical page count exceeds the budget (error).                                                  |
@@ -78,7 +92,7 @@ PDFs contain positioned glyphs, not reliable paragraph or table semantics. Parag
 
 No contrast check against arbitrary images/gradients, title-case/style judgment, slide narrative analysis or speaker-note inference from a PDF. Blank or image-only pages report missing text coverage. Font checks allow embedded Type3 fonts. Low-resolution checks use placed size, not an image's stored DPI tag.
 
-Use a contact sheet for one visual pass and inspect only flagged pages at higher resolution. The sheet is an aid, not a test result.
+Use a contact sheet for one visual pass and inspect only flagged pages at higher resolution. The sheet is an aid, not a test result. `sheet` refuses to overwrite unless `--replace` is given, and then only replaces an existing PNG; keep one fixed sheet path per deck so an open viewer reloads it.
 
 ## Development and evidence
 

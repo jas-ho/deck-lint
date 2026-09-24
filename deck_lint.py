@@ -30,16 +30,25 @@ DEFAULTS = dict(
     require_titles=False,
     require_notes=False,
     disabled=[],
+    forbidden=[],
+    accepted=[],
+    inputs=[],
 )
 RULES = set(
     "text.off-page text.overlap wrap.runt wrap.long font.small font.tall "
     "font.unembedded text.placeholder image.low-dpi page.size page.budget "
     "page.no-text typst.spillover typst.unmarked typst.notes-page "
     "typst.title-missing typst.notes-missing typst.compiler-warning "
-    "typst.metadata-missing pdf.repaired".split()
+    "typst.metadata-missing pdf.repaired text.forbidden".split()
 )
 BULLET = re.compile(r"^\s*(?:[•●▪◦‣–-]|\d+[.)])\s*")
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 PLACEHOLDER = re.compile(r"\b(?:TODO|FIXME|TBD)\b")
+
+
+def valid_input(entry):
+    key, sep, _ = entry.partition("=") if isinstance(entry, str) else ("", "", "")
+    return bool(sep and key.strip())
 
 
 def config_values(path, overrides, disabled):
@@ -76,6 +85,19 @@ def config_values(path, overrides, disabled):
     cfg["disabled"] = cfg["disabled"] + list(disabled)
     if any(not isinstance(r, str) or r not in RULES for r in cfg["disabled"]):
         raise ValueError("unknown disabled rule")
+    for pattern in cfg["forbidden"]:
+        if not isinstance(pattern, str) or not pattern:
+            raise ValueError("forbidden entries must be nonempty regex strings")
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"invalid forbidden pattern {pattern!r}: {exc}") from None
+    if not all(valid_input(entry) for entry in cfg["inputs"]):
+        raise ValueError("inputs entries must be 'key=value' strings")
+    for entry in cfg["accepted"]:
+        rule, sep, excerpt = entry.partition(": ") if isinstance(entry, str) else ("", "", "")
+        if not sep or rule not in RULES or not excerpt.strip():
+            raise ValueError("accepted entries must be 'rule.id: excerpt' as printed by check")
     if cfg["aspect"]:
         pieces = cfg["aspect"].split(":")
         if len(pieces) != 2 or any(not math.isfinite(float(v)) or float(v) <= 0 for v in pieces):
@@ -199,6 +221,11 @@ def inspect_page(page, cfg):
             )
         if PLACEHOLDER.search(line["text"]):
             findings.append(issue("text.placeholder", n, "Placeholder token", box, line["text"]))
+        for pattern in cfg["forbidden"]:
+            if re.search(pattern, line["text"]):
+                findings.append(
+                    issue("text.forbidden", n, f"Forbidden pattern {pattern}", box, line["text"], "error")
+                )
         emoji = [s for s in spans if "emoji" in s["font"].lower()]
         ordinary = [s for s in spans if "emoji" not in s["font"].lower()]
         emoji_risk = bool(
@@ -474,20 +501,38 @@ def check(
         with tempfile.TemporaryDirectory(prefix="deck-lint-") as scratch:
             markers, warnings = None, []
             if typ:
+                if not all(valid_input(item) for item in inputs):
+                    raise ValueError("--input requires key=value")
+                # Config inputs describe the real build; --input overrides the same key.
+                merged = dict(item.partition("=")[::2] for item in cfg["inputs"] + inputs)
+                inputs = [f"{key}={value}" for key, value in merged.items()]
                 document = Path(scratch) / "compiled.pdf"
                 markers, warnings = compile_typst(typ, document, root, inputs, font_paths)
             count, findings = analyze(document, cfg, markers)
         result["pages"] = count
-        result["findings"] = sorted(
-            [f for f in findings + warnings if f["rule"] not in cfg["disabled"]],
-            key=lambda f: (f["page"] or 0, f["rule"], f["bbox"] or []),
-        )
+        accepted = set(cfg["accepted"])
+        matched = set()
+        hidden = 0
+        kept = []
+        for f in findings + warnings:
+            key = f"{f['rule']}: {f['excerpt']}"
+            if f["rule"] in cfg["disabled"]:
+                continue
+            if f["severity"] == "warning" and key in accepted:
+                matched.add(key)
+                hidden += 1
+                continue
+            kept.append(f)
+        result["findings"] = sorted(kept, key=lambda f: (f["page"] or 0, f["rule"], f["bbox"] or []))
         result["coverage"] = dict(
             pdf_geometry=True,
             typst_metadata=bool(markers),
+            typst_inputs=inputs if typ else None,
             disabled=cfg["disabled"],
             visual_review=False,
             text_unavailable_pages=[f["page"] for f in findings if f["rule"] == "page.no-text"],
+            accepted=hidden,
+            accepted_unmatched=sorted(accepted - matched),
         )
         if any(f["rule"] == "typst.metadata-missing" for f in result["findings"]):
             result["snippet"] = SNIPPET
@@ -515,11 +560,18 @@ def sheet(
     output: Path = typer.Option(...),
     columns: int = typer.Option(6, min=1, max=20),
     width: int = typer.Option(240, min=80, max=800),
+    replace: bool = typer.Option(False, "--replace", help="Overwrite an existing PNG at --output"),
 ):
-    """Write a numbered, low-resolution PNG contact sheet. Never overwrite."""
+    """Write a numbered, low-resolution PNG contact sheet. Only --replace overwrites, and only a PNG."""
     try:
-        if output.exists() or output.resolve() == document.resolve():
-            raise ValueError("Output exists; choose a new output path")
+        if output.resolve() == document.resolve():
+            raise ValueError("Output must differ from the input PDF")
+        existed = output.exists()
+        if existed:
+            if not replace:
+                raise ValueError("Output exists; choose a new path or pass --replace")
+            if not output.is_file() or output.read_bytes()[:8] != PNG_MAGIC:
+                raise ValueError("--replace only overwrites an existing PNG file")
         with pdf.open(document) as doc, pdf.open() as canvas:
             if not doc.is_pdf or doc.needs_pass or not len(doc):
                 raise ValueError("Expected a nonempty unencrypted PDF")
@@ -537,7 +589,11 @@ def sheet(
                 page.insert_image(pdf.Rect(x + 4, y + 18, x + width - 4, y + height - 4), pixmap=thumb)
                 page.insert_text((x + 4, y + 12), str(index + 1), fontsize=10)
             data = page.get_pixmap(alpha=False).tobytes("png")
-            with output.open("xb") as dest:
+            with output.open("r+b" if existed else "xb") as dest:
+                if existed and dest.read(8) != PNG_MAGIC:
+                    raise ValueError("--replace only overwrites an existing PNG file")
+                dest.seek(0)
+                dest.truncate()
                 dest.write(data)
         print(output)
     except (OSError, ValueError, RuntimeError) as exc:

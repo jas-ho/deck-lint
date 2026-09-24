@@ -14,7 +14,7 @@ Text mode is silent when clean. Exit codes: 0 below the chosen failure level, 1 
 
 ## Validation
 
-26 tests pass, covering synthetic Typst layouts and generated PDF edge cases. Ruff and mypy are the code checks. Tests need Typst; the emoji fixture is skipped when its macOS fonts are unavailable.
+33 tests pass, covering synthetic Typst layouts and generated PDF edge cases. Ruff and mypy are the code checks. Tests need Typst; the emoji fixture is skipped when its macOS fonts are unavailable.
 
 The private reference copy has 34 slide starts across 36 pages: two confirmed spillovers, 23 wrapping-risk findings, and three false positives for intentional layouts. The full per-finding assessment is in ignored `tmp/reference/REPORT.md`; the contact sheet is `tmp/reference/sheet.png`. No reference-project files were edited. PDF checks took about 0.23 seconds; Typst compile/query/check about 0.85 seconds on the test machine, before the version-check subprocess was added.
 
