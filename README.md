@@ -12,10 +12,22 @@ CLI plus a shared skill and a short agent-instructions entry is the integration.
 
 Warnings need judgment. A deliberate line break, tightly set equation or decorative text can trigger a heuristic. Do not automatically rewrite every flagged slide or disable a rule solely to get a clean exit.
 
+## Install
+
+Requirements: Python 3.11+ and [uv](https://docs.astral.sh/uv/). Typst 0.15.1+ on `PATH` only for `--typ` mode.
+
+```sh
+uv tool install git+https://github.com/jas-ho/deck-lint
+# or from a local clone, with edits taking effect immediately:
+git clone https://github.com/jas-ho/deck-lint && uv tool install --editable ./deck-lint
+deck-lint --help
+```
+
+Agent skill (optional): `skills/deck-lint/SKILL.md` tells a coding agent when and how to run the CLI. Copy or symlink the `skills/deck-lint` folder into your agent's skills directory (for Claude Code: `~/.claude/skills/deck-lint`), and add a line to your agent instructions to lint after building slides.
+
 ## Usage
 
 ```sh
-uv tool install /path/to/deck-lint
 deck-lint check deck.pdf
 deck-lint check deck.pdf --json
 deck-lint check --typ deck.typ --input notes=false
@@ -96,6 +108,19 @@ Use a contact sheet for one visual pass and inspect only flagged pages at higher
 
 ## Development and evidence
 
+```sh
+uv sync --group dev
+uv run pytest -q
+uv run ruff check .
+uv run mypy --ignore-missing-imports deck_lint.py
+```
+
+Tests need Typst on `PATH`; the emoji fixture is skipped when its macOS fonts (Apple Color Emoji, Helvetica Neue) are unavailable.
+
 Synthetic fixtures are checked in; real decks and reports belong under ignored `tmp/`. Tests use plain Typst without downloaded packages. Do not add reference content, local paths or private test excerpts to version control.
 
 References: [Typst query](https://typst.app/docs/reference/introspection/query/), [physical locations](https://typst.app/docs/reference/introspection/location/), [PyMuPDF text extraction](https://pymupdf.readthedocs.io/en/latest/app1.html), [text tracing](https://pymupdf.readthedocs.io/en/latest/functions.html#Page.get_texttrace).
+
+## License
+
+MIT, see [LICENSE](LICENSE).

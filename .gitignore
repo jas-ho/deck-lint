@@ -7,3 +7,4 @@ build/
 dist/
 tmp/
 pytest-cache-files-*/
+.mypy_cache/

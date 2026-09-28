@@ -3,6 +3,8 @@ name = "deck-lint"
 version = "0.1.0"
 description = "Local slide PDF layout checks for coding agents"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = ["pymupdf>=1.26,<2", "typer>=0.27,<0.28"]
 
 [project.scripts]
