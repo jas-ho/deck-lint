@@ -2,15 +2,18 @@
 
 Local slide-layout checks. Works on any PDF deck, including Typst, PowerPoint, Marp and Beamer exports. It reports geometry and typography problems as text before a visual pass. It never edits a source deck.
 
-## Design decisions
+Why: coding agents now build slide decks (Typst, Marp, python-pptx), but they cannot see the rendered result. Text runs off the page, bullets wrap far past their line budget, labels collide, a slide spills onto a second page, and the agent reports success. deck-lint turns those layout problems into text findings an agent can read and fix, so the visual pass is only needed for what is flagged.
 
-Use PyMuPDF alone: its blocks, lines and font spans cover the same wrapping cases observed with Poppler, while also exposing text drawing operations, image placements and rendering. This avoids reconciling two extractors. Dependencies are installed with uv. Typst mode requires Typst 0.15.1 or newer; PDF mode does not require Typst.
+Example (excerpt) on the synthetic fixture `tests/fixtures/layout.typ`:
 
-PDF checks are format-agnostic. Slide boundaries, intended page counts, titles and speaker-note presence need source metadata. Typst mode compiles a fresh temporary PDF and queries metadata with the same options. It checks that compile, not an existing exported PDF. The source and its dependencies must remain unchanged while it runs. Main-source changes and out-of-range metadata pages are rejected, but separate compile/query runs cannot prove identical layout for time-dependent or changing imports. Use a deterministic build. Encrypted or unreadable PDFs fail with exit 2. PDFs MuPDF can repair emit `pdf.repaired` and still receive layout checks.
-
-CLI plus a shared skill and a short agent-instructions entry is the integration. Run it after building a slide PDF, before delivery. No shell hook: matching `typst compile` inside arbitrary shell commands is unreliable, misses watch builds and other exporters, and a Claude-only hook misses Codex. This is instruction-driven, not an enforced gate.
-
-Warnings need judgment. A deliberate line break, tightly set equation or decorative text can trigger a heuristic. Do not automatically rewrite every flagged slide or disable a rule solely to get a clean exit.
+```text
+$ deck-lint check --typ layout.typ
+warning wrap.long p1 [50,126.18,546.37,340.16] 6 lines (limit 2) | • This bullet has a deliberately forced first line
+warning wrap.runt p1 [50,77.87,93.47,107.51] Single-word final line | OFF
+error text.off-page p2 [890,216.72,1224.41,242.72] Text crosses page bounds | Textcrossesthepageboundary
+warning text.overlap p2 [180,66.72,266.48,92.72] Text runs intersect; inspect for a collision | Timelinelabeltwo / Timelinelabelone
+error typst.spillover p3 [-] Slide occupies 2 pages; expected at most 1 | An overflowing final slide
+```
 
 ## Install
 
@@ -97,6 +100,16 @@ Font sizes and geometric tolerances are normalized to a 540-point-high slide. Re
 | `typst.compiler-warning`                      | Typst emitted a warning, including unavailable fonts.                                            |
 
 Compiler warning messages are deduplicated first-line summaries; run Typst directly for source locations and full diagnostics. Rules are warnings unless marked as errors. Default failure level is warning.
+
+## Design decisions
+
+Use PyMuPDF alone: its blocks, lines and font spans cover the same wrapping cases observed with Poppler, while also exposing text drawing operations, image placements and rendering. This avoids reconciling two extractors. Dependencies are installed with uv. Typst mode requires Typst 0.15.1 or newer; PDF mode does not require Typst.
+
+PDF checks are format-agnostic. Slide boundaries, intended page counts, titles and speaker-note presence need source metadata. Typst mode compiles a fresh temporary PDF and queries metadata with the same options. It checks that compile, not an existing exported PDF. The source and its dependencies must remain unchanged while it runs. Main-source changes and out-of-range metadata pages are rejected, but separate compile/query runs cannot prove identical layout for time-dependent or changing imports. Use a deterministic build. Encrypted or unreadable PDFs fail with exit 2. PDFs MuPDF can repair emit `pdf.repaired` and still receive layout checks.
+
+CLI plus a shared skill and a short agent-instructions entry is the integration. Run it after building a slide PDF, before delivery. No shell hook: matching `typst compile` inside arbitrary shell commands is unreliable, misses watch builds and other exporters, and a Claude-only hook misses Codex. This is instruction-driven, not an enforced gate.
+
+Warnings need judgment. A deliberate line break, tightly set equation or decorative text can trigger a heuristic. Do not automatically rewrite every flagged slide or disable a rule solely to get a clean exit.
 
 ## Limits
 
