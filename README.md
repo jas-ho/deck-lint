@@ -2,6 +2,10 @@
 
 Local slide-layout checks. Works on any PDF deck, including Typst, PowerPoint, Marp and Beamer exports. It reports geometry and typography problems as text before a visual pass. It never edits a source deck.
 
+![Contact sheet of a five-slide demo deck: slide 3 is outlined in red for text running off the page and a bullet wrapping to three lines, slides 5 and 6 are outlined together because one slide spilled onto a second page; below, the three matching deck-lint check findings](docs/img/readme-visual.png)
+
+*`deck-lint check` on [a synthetic demo deck](docs/demo.typ) finds the broken slides as text (output abridged: bounding boxes and excerpts dropped); `deck-lint sheet` renders the contact sheet (red outlines added for this image).*
+
 Why: coding agents now build slide decks (Typst, Marp, python-pptx), but they cannot see the rendered result. Text runs off the page, bullets wrap far past their line budget, labels collide, a slide spills onto a second page, and the agent reports success. deck-lint turns those layout problems into text findings an agent can read and fix, so the visual pass is only needed for what is flagged.
 
 Example (excerpt) on the synthetic fixture `tests/fixtures/layout.typ`:
