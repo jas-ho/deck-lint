@@ -10,8 +10,8 @@ Example (excerpt) on the synthetic fixture `tests/fixtures/layout.typ`:
 $ deck-lint check --typ layout.typ
 warning wrap.long p1 [50,126.18,546.37,340.16] 6 lines (limit 2) | • This bullet has a deliberately forced first line
 warning wrap.runt p1 [50,77.87,93.47,107.51] Single-word final line | OFF
-error text.off-page p2 [890,216.72,1224.41,242.72] Text crosses page bounds | Textcrossesthepageboundary
-warning text.overlap p2 [180,66.72,266.48,92.72] Text runs intersect; inspect for a collision | Timelinelabeltwo / Timelinelabelone
+error text.off-page p2 [890,216.72,1224.41,242.72] Text crosses page bounds | Text crosses the page boundary
+warning text.overlap p2 [180,66.72,266.48,92.72] Text runs intersect; inspect for a collision | Timeline label two / Timeline label one
 error typst.spillover p3 [-] Slide occupies 2 pages; expected at most 1 | An overflowing final slide
 ```
 

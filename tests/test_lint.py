@@ -85,6 +85,23 @@ def test_source_and_existing_pdf_are_unchanged(tmp_path):
     assert len(text.stdout.splitlines()) == len(data["findings"])
 
 
+def test_finding_excerpts_preserve_word_spaces():
+    source = ROOT / "tests/fixtures/excerpt-spaces.typ"
+    r = run("check", "--typ", source, "--json")
+    assert r.returncode == 1, r.stdout + r.stderr
+    findings = json.loads(r.stdout)["findings"]
+    expected = {
+        "text.off-page": "Measured in the cold greenhouse at night.",
+        "text.overlap": "Timeline label two / Timeline label one",
+    }
+    for rule, excerpt in expected.items():
+        assert [f["excerpt"] for f in findings if f["rule"] == rule] == [excerpt]
+    text = run("check", "--typ", source)
+    assert text.returncode == 1, text.stdout + text.stderr
+    for excerpt in expected.values():
+        assert f" | {excerpt}\n" in text.stdout
+
+
 @pytest.mark.parametrize(
     "args",
     [

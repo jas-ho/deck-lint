@@ -178,15 +178,16 @@ def drawn_runs(page):
             continue
         rows = {}
         for char in span["chars"]:
-            if chr(char[0]).isspace():
-                continue
             rows.setdefault(round(char[2][1], 1), []).append(char)
         for chars in rows.values():
-            boxes = [pdf.Rect(c[3]) for c in chars]
+            # Spaces belong in excerpts, but must not count as ink for collisions.
+            boxes = [pdf.Rect(c[3]) for c in chars if not chr(c[0]).isspace()]
+            if not boxes:
+                continue
             box = pdf.Rect(boxes[0])
             for b in boxes[1:]:
                 box |= b
-            text = "".join(chr(c[0]) for c in chars)
+            text = "".join(chr(c[0]) for c in chars).strip()
             key = (text, *(round(v, 1) for v in box))
             if key not in seen:
                 seen.add(key)
